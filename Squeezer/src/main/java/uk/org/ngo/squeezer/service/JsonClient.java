@@ -25,13 +25,16 @@ import android.util.Log;
 import com.bluelinelabs.logansquare.LoganSquare;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.Writer;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -42,13 +45,14 @@ import de.greenrobot.event.EventBus;
 import uk.org.ngo.squeezer.itemlist.IServiceItemListCallback;
 import uk.org.ngo.squeezer.model.ClientRequest;
 import uk.org.ngo.squeezer.model.ClientRequestParameters;
+import uk.org.ngo.squeezer.model.ClientResponse;
 import uk.org.ngo.squeezer.model.Player;
 import uk.org.ngo.squeezer.service.event.PlayersChanged;
 
 public class JsonClient extends BaseClient {
     private static final String TAG = JsonClient.class.getSimpleName();
 
-    private Map<String, Player> mPlayers;
+    private final Map<String, Player> mPlayers = new HashMap<String, Player>();
     private final Map<Integer, IServiceItemListCallback> mPendingRequests
             = new ConcurrentHashMap<Integer, IServiceItemListCallback>();
 
@@ -79,9 +83,9 @@ public class JsonClient extends BaseClient {
     public void sendCommandImmediately(@NonNull ClientRequest clientRequest) {
         try {
             String request = LoganSquare.serialize(clientRequest);
-            Log.d("JSON", "Sending " + request);
+            Log.d(TAG, "Sending " + request);
             // XXX - hardcoded URL
-            URL url = new URL("http://10.0.2.2:9000/jsonrpc.js");
+            URL url = new URL("http://192.168.0.13:9001/jsonrpc.js");
             HttpURLConnection urlConnection = (HttpURLConnection) url.openConnection();
             try {
                 urlConnection.setDoOutput(true);
@@ -92,13 +96,18 @@ public class JsonClient extends BaseClient {
                 writer.flush();
 
                 BufferedReader in = new BufferedReader(new InputStreamReader(urlConnection.getInputStream()));
+                final String input = in.readLine();
+                Log.d(TAG, "Received " + input);
 
-                Log.d("JSON", "Received " + in.readLine());
+                final ClientResponse response = LoganSquare.parse(input, ClientResponse.class);
+                final IServiceItemListCallback callback = mPendingRequests.get(response.id);
+                if (callback != null) {
+                    callback.onItemsReceived(response.result.count, response.params.start, null, response.result.players, Player.class);
+                }
+                // TODO implement CliClient.parseSqueezerList functionality
             } finally {
                 urlConnection.disconnect();
             }
-        } catch (MalformedURLException e) {
-            e.printStackTrace();
         } catch (IOException e) {
             e.printStackTrace();
         }

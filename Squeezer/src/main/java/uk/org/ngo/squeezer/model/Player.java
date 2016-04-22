@@ -21,6 +21,9 @@ import android.os.Parcel;
 import android.support.annotation.NonNull;
 import android.support.annotation.StringDef;
 
+import com.bluelinelabs.logansquare.annotation.JsonField;
+import com.bluelinelabs.logansquare.annotation.JsonObject;
+import com.bluelinelabs.logansquare.annotation.OnJsonParseComplete;
 import com.google.common.base.Charsets;
 import com.google.common.collect.Sets;
 import com.google.common.hash.HashCode;
@@ -38,26 +41,32 @@ import uk.org.ngo.squeezer.Util;
 import uk.org.ngo.squeezer.framework.Item;
 
 
+@JsonObject
 public class Player extends Item {
 
-    private String mName;
+    @JsonField
+    private String name;
 
-    private final String mIp;
+    @JsonField
+    private String ip;
 
-    private final String mModel;
+    @JsonField
+    private String model;
 
-    private final boolean mCanPowerOff;
+    @JsonField(name = "canpoweroff")
+    private boolean mCanPowerOff;
 
     /** Hash function to generate at least 64 bits of hashcode from a player's ID. */
     private static final HashFunction mHashFunction = Hashing.goodFastHash(64);
 
     /**  A hash of the player's ID. */
-    private final HashCode mHashCode;
+    private HashCode mHashCode;
 
     private PlayerState mPlayerState = new PlayerState();
 
     /** Is the player connected? */
-    private boolean mConnected;
+    @JsonField
+    private boolean connected;
 
     public static class Pref {
         /** The types of player preferences. */
@@ -75,14 +84,29 @@ public class Player extends Item {
                 ALARMS_ENABLED);
     }
 
+    // LoganSquare needs a noargs constructor and setters
+    /* package */ Player() { }
+    /* package */ void setIp(String ip) { this.ip = ip; }
+    /* package */ void setModel(String model) { this.model = model; }
+    /* package */ void setCanPowerOff(boolean canPowerOff) { this.mCanPowerOff = canPowerOff; }
+    @JsonField String playerid; // The name of the id field for players
+
+    @OnJsonParseComplete void onParseComplete() {
+        setId(playerid);
+        setHashCode();
+    }
+
     public Player(Map<String, String> record) {
         setId(record.get("playerid"));
-        mIp = record.get("ip");
-        mName = record.get("name");
-        mModel = record.get("model");
+        ip = record.get("ip");
+        name = record.get("name");
+        model = record.get("model");
         mCanPowerOff = Util.parseDecimalIntOrZero(record.get("canpoweroff")) == 1;
-        mConnected = Util.parseDecimalIntOrZero(record.get("connected")) == 1;
+        connected = Util.parseDecimalIntOrZero(record.get("connected")) == 1;
+        setHashCode();
+    }
 
+    private void setHashCode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) {
             mHashCode = mHashFunction.hashString(getId(), Charsets.UTF_8);
         } else {
@@ -102,30 +126,30 @@ public class Player extends Item {
 
     private Player(Parcel source) {
         setId(source.readString());
-        mIp = source.readString();
-        mName = source.readString();
-        mModel = source.readString();
+        ip = source.readString();
+        name = source.readString();
+        model = source.readString();
         mCanPowerOff = (source.readByte() == 1);
-        mConnected = (source.readByte() == 1);
+        connected = (source.readByte() == 1);
         mHashCode = HashCode.fromString(source.readString());
     }
 
     @Override
     public String getName() {
-        return mName;
+        return name;
     }
 
     public Player setName(String name) {
-        this.mName = name;
+        this.name = name;
         return this;
     }
 
     public String getIp() {
-        return mIp;
+        return ip;
     }
 
     public String getModel() {
-        return mModel;
+        return model;
     }
 
     public boolean isCanpoweroff() {
@@ -133,11 +157,11 @@ public class Player extends Item {
     }
 
     public void setConnected(boolean connected) {
-        mConnected = connected;
+        this.connected = connected;
     }
 
     public boolean getConnected() {
-        return mConnected;
+        return connected;
     }
 
     @NonNull
@@ -164,11 +188,11 @@ public class Player extends Item {
     @Override
     public void writeToParcel(Parcel dest, int flags) {
         dest.writeString(getId());
-        dest.writeString(mIp);
-        dest.writeString(mName);
-        dest.writeString(mModel);
+        dest.writeString(ip);
+        dest.writeString(name);
+        dest.writeString(model);
         dest.writeByte(mCanPowerOff ? (byte) 1 : (byte) 0);
-        dest.writeByte(mConnected ? (byte) 1 : (byte) 0);
+        dest.writeByte(connected ? (byte) 1 : (byte) 0);
         dest.writeString(mHashCode.toString());
     }
 
@@ -196,7 +220,7 @@ public class Player extends Item {
 
     @Override
     public String toStringOpen() {
-        return super.toStringOpen() + ", model: " + mModel + ", canpoweroff: " + mCanPowerOff
-                + ", ip: " + mIp + ", connected: " + mConnected;
+        return super.toStringOpen() + ", model: " + model + ", canpoweroff: " + mCanPowerOff
+                + ", ip: " + ip + ", connected: " + connected;
     }
 }

@@ -19,7 +19,8 @@ package uk.org.ngo.squeezer.service;
 import android.support.annotation.CallSuper;
 import android.support.annotation.NonNull;
 
-import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import de.greenrobot.event.EventBus;
 import uk.org.ngo.squeezer.R;
@@ -32,7 +33,7 @@ abstract class BaseClient implements IClient {
 
     /** Executor for off-main-thread work. */
     @NonNull
-    protected final ScheduledThreadPoolExecutor mExecutor = new ScheduledThreadPoolExecutor(1);
+    protected final ExecutorService mExecutor = Executors.newSingleThreadExecutor();
 
     /** Shared event bus for status changes. */
     @NonNull protected final EventBus mEventBus;
