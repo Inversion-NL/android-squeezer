@@ -16,11 +16,8 @@
 
 package uk.org.ngo.squeezer.service;
 
-import android.os.Looper;
-import android.support.annotation.MainThread;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.annotation.WorkerThread;
 import android.util.Log;
 
 import com.google.common.collect.ImmutableMap;
@@ -31,16 +28,13 @@ import org.cometd.client.BayeuxClient;
 import org.cometd.client.transport.ClientTransport;
 import org.cometd.client.transport.LongPollingTransport;
 import org.eclipse.jetty.client.HttpClient;
+import org.eclipse.jetty.client.api.ContentResponse;
+import org.eclipse.jetty.client.api.Request;
+import org.eclipse.jetty.client.util.StringContentProvider;
+import org.eclipse.jetty.util.ajax.JSON;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
-import java.io.Writer;
-import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
-import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,12 +42,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import de.greenrobot.event.EventBus;
 import uk.org.ngo.squeezer.BuildConfig;
-import uk.org.ngo.squeezer.Util;
-import uk.org.ngo.squeezer.framework.Item;
 import uk.org.ngo.squeezer.itemlist.IServiceItemListCallback;
-import uk.org.ngo.squeezer.model.ClientRequest;
-import uk.org.ngo.squeezer.model.ClientRequestParameters;
-import uk.org.ngo.squeezer.model.ClientResponse;
 import uk.org.ngo.squeezer.model.Player;
 import uk.org.ngo.squeezer.service.event.HandshakeComplete;
 import uk.org.ngo.squeezer.service.event.PlayersChanged;
@@ -61,11 +50,13 @@ import uk.org.ngo.squeezer.service.event.PlayersChanged;
 public class CometClient extends BaseClient {
     private static final String TAG = CometClient.class.getSimpleName();
 
+    private static final String URL =  "http://192.168.0.13:9001/cometd";
+
     /** Client to the comet server. */
     @Nullable
     private BayeuxClient mBayeuxClient;
 
-    private static final ClientSessionChannel.MessageListener mLogJsonListener = new LogJsonListener();
+    private static final ClientSessionChannel.MessageListener mLogJsonListener = new LogJsonListener("main");
 
     /** The channel to publish one-shot requests to. */
     private static final String CHANNEL_SLIM_REQUEST = "/slim/request";
@@ -81,6 +72,9 @@ public class CometClient extends BaseClient {
 
     /** The channel to publish subscription requests to. */
     private static final String CHANNEL_SLIM_SUBSCRIBE = "/slim/subscribe";
+
+    /** Wildcard subscription. */
+    private static final String WILDCARD_SUBSCRIBTION_FORMAT = "/%s/**";
 
     /** The format string for the channel to listen to for responses to playerstatus requests. */
     private static final String CHANNEL_PLAYER_STATUS_RESPONSE_FORMAT = "/%s/slim/playerstatus/%s";
@@ -103,7 +97,7 @@ public class CometClient extends BaseClient {
 
     // All requests are tagged with a correlation id, which can be used when
     // asynchronous responses are received.
-    private int mCorrelationId = 0;
+    private int mCorrelationId = 1_000_000;
 
     CometClient(@NonNull EventBus eventBus) {
         super(eventBus);
@@ -133,7 +127,7 @@ public class CometClient extends BaseClient {
         // distinguish between CLI and Comet.
         // XXX: Also need to deal with usernames and passwords, and HTTPS
         //String url = String.format("http://%s/cometd", hostPort);
-        String url = "http://192.168.0.13:9001/cometd";
+        String url =  URL;
 
         Map<String, Object> options = new HashMap<>();
         ClientTransport transport = new LongPollingTransport(options, httpClient);
@@ -143,9 +137,9 @@ public class CometClient extends BaseClient {
                 super.onSending(messages);
                 if (BuildConfig.DEBUG) {
                     for (Message message : messages) {
-                        if ("/meta/connect".equals(message.getChannel())) {
-                            return;
-                        }
+//                        if ("/meta/connect".equals(message.getChannel())) {
+//                            return;
+//                        }
                         Log.d(TAG, "SEND: " + message.getJSON());
                     }
                 }
@@ -187,6 +181,8 @@ public class CometClient extends BaseClient {
                     mBayeuxClient.getChannel(responseChannel).addListener(mLogJsonListener);
                 }
 
+                mBayeuxClient.getChannel(String.format(WILDCARD_SUBSCRIBTION_FORMAT, clientId)).subscribe(mLogJsonListener);
+
                 //mConnectionState.startConnect(service, mEventBus, mExecutor, this, hostPort, userName, password);
 
                 // There's no persistent connection to manage.  Run the connection state machine
@@ -209,7 +205,7 @@ public class CometClient extends BaseClient {
 
                 // The responses to pref requests do not include the preference being returned either.
 
-                mBayeuxClient.getChannel(chnCanMusicfolder).addListener(new LogJsonListener() {
+                mBayeuxClient.getChannel(chnCanMusicfolder).addListener(new LogJsonListener("can music folder") {
                     @Override
                     public void onMessage(ClientSessionChannel channel, Message message) {
                         super.onMessage(channel, message);
@@ -217,7 +213,7 @@ public class CometClient extends BaseClient {
                     }
                 });
 
-                mBayeuxClient.getChannel(chnCanRandomplay).addListener(new LogJsonListener() {
+                mBayeuxClient.getChannel(chnCanRandomplay).addListener(new LogJsonListener("can random play") {
                     @Override
                     public void onMessage(ClientSessionChannel channel, Message message) {
                         super.onMessage(channel, message);
@@ -225,7 +221,7 @@ public class CometClient extends BaseClient {
                     }
                 });
 
-                mBayeuxClient.getChannel(chnCanFavorites).addListener(new LogJsonListener() {
+                mBayeuxClient.getChannel(chnCanFavorites).addListener(new LogJsonListener("can favorites") {
                     @Override
                     public void onMessage(ClientSessionChannel channel, Message message) {
                         super.onMessage(channel, message);
@@ -233,7 +229,7 @@ public class CometClient extends BaseClient {
                     }
                 });
 
-                mBayeuxClient.getChannel(chnCanMyapps).addListener(new LogJsonListener() {
+                mBayeuxClient.getChannel(chnCanMyapps).addListener(new LogJsonListener("can my apps") {
                     @Override
                     public void onMessage(ClientSessionChannel channel, Message message) {
                         super.onMessage(channel, message);
@@ -241,7 +237,7 @@ public class CometClient extends BaseClient {
                     }
                 });
 
-                mBayeuxClient.getChannel(chnPrefMediadirs).addListener(new LogJsonListener() {
+                mBayeuxClient.getChannel(chnPrefMediadirs).addListener(new LogJsonListener("mediadirs") {
                     @Override
                     public void onMessage(ClientSessionChannel channel, Message message) {
                         super.onMessage(channel, message);
@@ -249,7 +245,7 @@ public class CometClient extends BaseClient {
                     }
                 });
 
-                mBayeuxClient.getChannel(chnPrefAlbumSort).addListener(new LogJsonListener() {
+                mBayeuxClient.getChannel(chnPrefAlbumSort).addListener(new LogJsonListener("preferred album sort") {
                     @Override
                     public void onMessage(ClientSessionChannel channel, Message message) {
                         super.onMessage(channel, message);
@@ -259,7 +255,7 @@ public class CometClient extends BaseClient {
                     }
                 });
 
-                mBayeuxClient.getChannel(chnVersion).addListener(new LogJsonListener() {
+                mBayeuxClient.getChannel(chnVersion).addListener(new LogJsonListener("version") {
                     @Override
                     public void onMessage(ClientSessionChannel channel, Message message) {
                         super.onMessage(channel, message);
@@ -272,17 +268,35 @@ public class CometClient extends BaseClient {
 
                 mRequestChannel = mBayeuxClient.getChannel(CHANNEL_SLIM_REQUEST);
 
-                mRequestChannel.publish(new Request("can", "musicfolder", "?").getData(chnCanMusicfolder), mLogJsonListener);
-                mRequestChannel.publish(new Request("can", "randomplay", "?").getData(chnCanRandomplay), mLogJsonListener);
-                mRequestChannel.publish(new Request("can", "favorites", "items", "?").getData(chnCanFavorites), mLogJsonListener);
-                mRequestChannel.publish(new Request("can", "myapps", "items", "?").getData(chnCanMyapps), mLogJsonListener);
+//                try {
+//                    request(new SlimRequest("can", "musicfolder", "?"), chnCanMusicfolder);
+//
+//                    request(new SlimRequest("can", "musicfolder", "?"), chnCanMusicfolder);
+//                    request(new SlimRequest("can", "randomplay", "?"), chnCanRandomplay);
+//                    request(new SlimRequest("can", "favorites", "items", "?"), chnCanFavorites);
+//                    request(new SlimRequest("can", "myapps", "items", "?"), chnCanMyapps);
+//
+//                    // XXX: Skipped "pref httpport ?"
+//
+//                    request(new SlimRequest("pref", "jivealbumsort", "?"), chnPrefAlbumSort);
+//                    request(new SlimRequest("pref", "mediadirs", "?"), chnPrefMediadirs);
+//
+//                    request(new SlimRequest("version", "?"), chnVersion);
+//                } catch (Exception e) {
+//                    Log.e(TAG, "::startConnect query server capabilities: ", e);
+//                }
+
+                mRequestChannel.publish(new SlimRequest("can", "musicfolder", "?").getData(chnCanMusicfolder), mLogJsonListener);
+                mRequestChannel.publish(new SlimRequest("can", "randomplay", "?").getData(chnCanRandomplay), mLogJsonListener);
+                mRequestChannel.publish(new SlimRequest("can", "favorites", "items", "?").getData(chnCanFavorites), mLogJsonListener);
+                mRequestChannel.publish(new SlimRequest("can", "myapps", "items", "?").getData(chnCanMyapps), mLogJsonListener);
 
                 // XXX: Skipped "pref httpport ?"
 
-                mRequestChannel.publish(new Request("pref", "jivealbumsort", "?").getData(chnPrefAlbumSort), mLogJsonListener);
-                mRequestChannel.publish(new Request("pref", "mediadirs", "?").getData(chnPrefMediadirs), mLogJsonListener);
+                mRequestChannel.publish(new SlimRequest("pref", "jivealbumsort", "?").getData(chnPrefAlbumSort), mLogJsonListener);
+                mRequestChannel.publish(new SlimRequest("pref", "mediadirs", "?").getData(chnPrefMediadirs), mLogJsonListener);
 
-                mRequestChannel.publish(new Request("version", "?").getData(chnVersion), mLogJsonListener);
+                mRequestChannel.publish(new SlimRequest("version", "?").getData(chnVersion), mLogJsonListener);
 
 //                sendCommandImmediately(
 //                        "listen 1", // subscribe to all server notifications
@@ -299,7 +313,7 @@ public class CometClient extends BaseClient {
 //                        // "handshake is complete" logic elsewhere.
 //                        "version ?"
 
-                mBayeuxClient.disconnect();
+//                mBayeuxClient.disconnect();
             }
         });
     }
@@ -307,10 +321,19 @@ public class CometClient extends BaseClient {
     abstract class ItemListener implements ClientSessionChannel.MessageListener {}
 
     private static class LogJsonListener implements ClientSessionChannel.MessageListener {
+        private String name;
+
+        public LogJsonListener() {
+        }
+
+        public LogJsonListener(String name) {
+            this.name = name;
+        }
+
         @Override
         public void onMessage(ClientSessionChannel channel, Message message) {
-            Log.v(TAG, String.format("RECV [%s] (%s): %s",
-                    message.isSuccessful() ? "S" : "F", message.getChannel(), message.getJSON()));
+            Log.v(TAG, String.format("RECV%s (%s): %s",
+                    (name == null ? "" : "[" + name + "]"), message.getChannel(), message.getJSON()));
 //            Map<String, Object> data = message.getDataAsMap();
 //            Log.v(TAG, "map: " + data);
 //            Log.v(TAG, "id: " + message.getId());
@@ -352,7 +375,7 @@ public class CometClient extends BaseClient {
 
     @Override
     public void disconnect(boolean loginFailed) {
-
+        mBayeuxClient.disconnect();
     }
 
     @Override
@@ -441,14 +464,14 @@ public class CometClient extends BaseClient {
     }
 
     // Should probably have a pool of these.
-    private class Request {
+    private class SlimRequest {
         String[] cmd;
 
-        Request(String... cmd) {
+        SlimRequest(String... cmd) {
             this.cmd = cmd;
         }
 
-//        Request(String player, String cmd, List<String> parameters) {
+//        SlimRequest(String player, String cmd, List<String> parameters) {
 //            if (player != null) {
 //                this.player = player;
 //            }
@@ -508,8 +531,14 @@ public class CometClient extends BaseClient {
             request[i] = parameters.get(i - 1);
         }
 
+//        try {
+//            request(new SlimRequest(request), responseChannel);
+//        } catch (Exception e) {
+//            Log.e(TAG, "::internalRequestItems(" + cmd + "): ", e);
+//        }
+
         mBayeuxClient.getChannel(CHANNEL_SLIM_REQUEST).publish(
-                new Request(request).getData(responseChannel), new ClientSessionChannel.MessageListener() {
+                new SlimRequest(request).getData(responseChannel), new ClientSessionChannel.MessageListener() {
                     @Override
                     public void onMessage(ClientSessionChannel channel, Message message) {
                         if (message.isSuccessful()) {
@@ -580,4 +609,37 @@ public class CometClient extends BaseClient {
     public void requestPlayerItems(@Nullable Player player, String cmd, int start, List<String> parameters, IServiceItemListCallback callback) {
 
     }
+
+
+    private void request(SlimRequest slimRequest, String chnResponse) throws Exception {
+        sendCommand(CHANNEL_SLIM_REQUEST, slimRequest, chnResponse);
+    }
+
+    private void subscribe(SlimRequest slimRequest, String chnResponse) throws Exception {
+        sendCommand(CHANNEL_SLIM_SUBSCRIBE, slimRequest, chnResponse);
+    }
+
+    private void sendCommand(String channel, SlimRequest slimRequest, String chnResponse) throws Exception {
+        Map<String, Object> message = new HashMap<>();
+        message.put("channel", CHANNEL_SLIM_REQUEST);
+        message.put("clientId", mBayeuxClient.getId());
+        message.put("id", mCorrelationId++);
+        message.put("data", slimRequest.getData(chnResponse));
+        String cometMessage = JSON.toString(Arrays.asList(message));
+        Log.d(TAG, "SEND2: " + cometMessage);
+
+        HttpClient httpClient = new HttpClient();
+        httpClient.start();
+        final Request request = httpClient.POST(URL);
+        request.header("Content-type", CONTENT_TYPE);
+        request.header("Accept-charset", ENCODING);
+        request.content(new StringContentProvider(cometMessage, ENCODING));
+        ContentResponse contentResponse = request.send();
+        Log.d(TAG, "contentResponse: " + contentResponse + "'" + contentResponse.getContentAsString() + "'");
+        httpClient.stop();
+    }
+
+    private static final String ENCODING = "ISO-8859-1";
+    private static final String CONTENT_TYPE = "application/json";
+
 }
